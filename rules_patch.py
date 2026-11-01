@@ -1,5 +1,5 @@
 """
-RK Word Formatting Lab - Dynamic Rules & Evaluation Patch File
+RishiK Word Formatting Lab - Dynamic Rules & Evaluation Patch File
 फाइल रीडिंग और सभी प्रश्न जाँचने के नियम इस फाइल में हैं।
 """
 import time, re
