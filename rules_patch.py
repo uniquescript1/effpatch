@@ -654,7 +654,11 @@ def evaluate_two_file_exact_match(practical_path, solved_path, user_path, questi
                 remark = "Justify alignment mismatch"
 
         elif "header" in q_lower or "हेडर" in q_lower:
-            if actual_fmt["has_header"] and actual_fmt["header_text"] == solved_fmt["header_text"]:
+            # स्पेस और केस की अशुद्धियों को हटाने के लिए .lower() और .split() का उपयोग करें
+            actual_h = " ".join(actual_fmt.get("header_text", "").lower().split())
+            solved_h = " ".join(solved_fmt.get("header_text", "").lower().split())
+            
+            if actual_fmt["has_header"] and actual_h == solved_h and len(solved_h) > 0:
                 q_passed = True
                 remark = "Header 100% matched with solved file"
             else:
@@ -679,7 +683,10 @@ def evaluate_two_file_exact_match(practical_path, solved_path, user_path, questi
                 remark = "Paragraph indentation or spacing mismatch with solved file"
 
         elif "footer" in q_lower or "फुटर" in q_lower:
-            if actual_fmt["has_footer"] and actual_fmt["footer_text"] == solved_fmt["footer_text"]:
+            actual_f = " ".join(actual_fmt.get("footer_text", "").lower().split())
+            solved_f = " ".join(solved_fmt.get("footer_text", "").lower().split())
+            
+            if actual_fmt["has_footer"] and actual_f == solved_f and len(solved_f) > 0:
                 q_passed = True
                 remark = "Footer 100% matched with solved file"
             else:
