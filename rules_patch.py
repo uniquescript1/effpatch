@@ -1,5 +1,5 @@
 """
-RishiK Word Formatting Lab - Dynamic Rules & Evaluation Patch File
+RK Word Formatting Lab - Dynamic Rules & Evaluation Patch File
 फाइल रीडिंग और सभी प्रश्न जाँचने के नियम इस फाइल में हैं।
 """
 import time, re
@@ -85,16 +85,27 @@ def get_docx_format(path):
     table_structures = []
     for t in doc.tables:
         t_struct = []
-        for row in t.rows:
+        for r_idx, row in enumerate(t.rows):
             r_struct = []
-            for cell in row.cells:
+            for c_idx, cell in enumerate(row.cells):
                 cell_xml = str(cell._tc.xml)
                 cell_has_bullet = 'w:numPr' in cell_xml or 'w:bullet' in cell_xml or 'w:ilvl' in cell_xml
+                
+                # सेल के अंदर की फॉर्मेटिंग (Bold, Strike, Highlighting) निकालना
+                cell_bold = 'w:b/>' in cell_xml or 'w:b ' in cell_xml
+                cell_strike = 'w:strike/>' in cell_xml or 'w:strike ' in cell_xml
+                cell_dstrike = 'w:dstrike' in cell_xml and 'w:val="false"' not in cell_xml
+                
                 r_struct.append({
+                    "row_index": r_idx,
+                    "col_index": c_idx,
                     "grid_span": "gridSpan" in cell_xml,
                     "v_merge": "vMerge" in cell_xml,
                     "text": cell.text.strip(),
-                    "has_bullet": cell_has_bullet
+                    "has_bullet": cell_has_bullet,
+                    "bold": cell_bold,
+                    "strike": cell_strike,
+                    "double_strike": cell_dstrike
                 })
             t_struct.append(r_struct)
         table_structures.append(t_struct)
@@ -404,6 +415,55 @@ def evaluate_two_file_exact_match(practical_path, solved_path, user_path, questi
                     remark = "Paragraph end text matched"
                 else:
                     remark = "Paragraph index or text mismatch"
+                    
+                    # स्ट्राइक थ्रू (Strike-through) एवं डबल स्ट्राइक (Double Strike-through) का सटीक नियम
+        elif "strike" in q_lower or "स्ट्राइक" in q_lower or "कटा हुआ" in q_lower:
+            is_double = "double" in q_lower or "डबल" in q_lower
+            
+            # 1. यदि प्रश्न किसी विशिष्ट पैराग्राफ (जैसे Paragraph 2) के लिए है
+            p_match = re.search(r'(?:paragraph|पैराग्राफ)\s*(\d+)', q_lower)
+            if p_match:
+                p_idx = int(p_match.group(1)) - 1
+                if p_idx < len(actual_fmt["paragraphs"]) and p_idx < len(solved_fmt["paragraphs"]):
+                    sp_runs = solved_fmt["paragraphs"][p_idx]["runs"]
+                    ap_runs = actual_fmt["paragraphs"][p_idx]["runs"]
+                    
+                    strike_key = "double_strike" if is_double else "strike"
+                    match_p_strike = all(sr[strike_key] == ar[strike_key] for sr, ar in zip(sp_runs, ap_runs))
+                    
+                    if match_p_strike:
+                        q_passed = True
+                        remark = f"Paragraph {p_idx+1} strike-through 100% matched with solved file"
+                    else:
+                        remark = f"Strike-through mismatch in Paragraph {p_idx+1}"
+                else:
+                    remark = f"Paragraph {p_idx+1} not found in document"
+            
+            # 2. पूरे डॉक्यूमेंट/अदर लाइन्स में स्ट्राइक चेक करना
+            else:
+                strike_key = "double_strike" if is_double else "strike"
+                solved_has_strike = any(any(r[strike_key] for r in p["runs"]) for p in solved_fmt["paragraphs"])
+                actual_has_strike = any(any(r[strike_key] for r in p["runs"]) for p in actual_fmt["paragraphs"])
+                
+                if solved_has_strike and actual_has_strike:
+                    match_strike = True
+                    for sp, ap in zip(solved_fmt["paragraphs"], actual_fmt["paragraphs"]):
+                        for sr, ar in zip(sp["runs"], ap["runs"]):
+                            if sr[strike_key] != ar[strike_key]:
+                                match_strike = False
+                                break
+                        if not match_strike: break
+                    
+                    if match_strike:
+                        q_passed = True
+                        remark = f"{'Double' if is_double else 'Single'} Strike-through 100% matched with solved file"
+                    else:
+                        remark = f"{'Double' if is_double else 'Single'} Strike-through applied on wrong text/paragraph"
+                elif not solved_has_strike and not actual_has_strike:
+                    q_passed = True
+                    remark = "Strike condition matched"
+                else:
+                    remark = f"{'Double' if is_double else 'Single'} Strike-through missing"
         # 1. Bold प्रश्न जाँचने का नियम (सटीक मिलान)[cite: 11]
         elif "bold" in q_lower or "बोल्ड" in q_lower:
             solved_has_bold = any(any(r["bold"] for r in p["runs"]) for p in solved_fmt["paragraphs"])
@@ -794,6 +854,46 @@ def evaluate_two_file_exact_match(practical_path, solved_path, user_path, questi
                         remark = "Word successfully replaced"
                     else:
                         remark = f"Text replacement mismatch for '{target_word}'"
+        elif any(k in q_lower for k in ["table", "row", "column", "cell", "पंक्ति", "स्तंभ", "टेबल"]):
+            if actual_fmt["table_structures"] and solved_fmt["table_structures"]:
+                # रो नंबर और कॉलम नंबर प्रश्न से निकालना (जैसे Row 1, Column 2)
+                row_m = re.search(r'(?:row|रो|पंक्ति)\s*(\d+)', q_lower)
+                col_m = re.search(r'(?:column|col|कॉलम|स्तंभ)\s*(\d+)', q_lower)
+                
+                target_r = int(row_m.group(1)) - 1 if row_m else None
+                target_c = int(col_m.group(1)) - 1 if col_m else None
+                
+                match_table = True
+                for st, at in zip(solved_fmt["table_structures"], actual_fmt["table_structures"]):
+                    for r_idx, (s_row, a_row) in enumerate(zip(st, at)):
+                        if target_r is not None and r_idx != target_r:
+                            continue  # केवल लक्ष्य (Target) रो को ही जांचें
+                        
+                        for c_idx, (s_cell, a_cell) in enumerate(zip(s_row, a_row)):
+                            if target_c is not None and c_idx != target_c:
+                                continue  # केवल लक्ष्य कॉलम को ही जांचें
+                            
+                            # स्ट्राइक या अन्य फॉर्मेटिंग की तुलना
+                            if "strike" in q_lower or "स्ट्राइक" in q_lower:
+                                is_double = "double" in q_lower or "डबल" in q_lower
+                                k = "double_strike" if is_double else "strike"
+                                if s_cell[k] != a_cell[k]:
+                                    match_table = False
+                                    break
+                            else:
+                                if s_cell["text"] != a_cell["text"] or s_cell["bold"] != a_cell["bold"]:
+                                    match_table = False
+                                    break
+                        if not match_table: break
+                    if not match_table: break
+                
+                if match_table:
+                    q_passed = True
+                    remark = "Table row/column formatting 100% matched with solved file"
+                else:
+                    remark = "Table row/column formatting mismatch with solved file"
+            else:
+                remark = "Table missing in document or solved file"                
                 
         elif "orientation" in q_lower or "landscape" in q_lower or "पोर्ट्रेट" in q_lower:
             if actual_fmt["orientation"] == solved_fmt["orientation"]:
